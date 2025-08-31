@@ -3,33 +3,38 @@ from langchain_community.document_loaders import PyPDFLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_community.vectorstores import FAISS
-from langchain_community.llms import Ollama
+
+# --- CHANGE 1: Import the correct 'ChatOllama' class ---
+from langchain_ollama.chat_models import ChatOllama
+
 from langchain.chains import RetrievalQA
-from langchain.agents import AgentExecutor, create_react_agent, tool
-from langchain import hub
+from langchain.agents import AgentExecutor, create_tool_calling_agent, tool
+from langchain_core.prompts import ChatPromptTemplate
 
 # --- Configuration ---
 PDF_PATH = "Designing_data_intesive_applications.pdf"
 VECTOR_STORE_PATH = "faiss_index_dataintensive"
 EMBEDDING_MODEL_NAME = "all-MiniLM-L6-v2"
-OLLAMA_MODEL = "llama2"
+OLLAMA_MODEL = "llama3"
+
 
 class RAGAgent:
     """A class to encapsulate the RAG agent's logic and state."""
+
     def __init__(self):
-        """Initializes the agent, loading all necessary components."""
         print("Initializing RAG Agent...")
         self.embeddings = HuggingFaceEmbeddings(model_name=EMBEDDING_MODEL_NAME)
         self.vector_store = self._create_or_load_vector_store()
-        self.llm = Ollama(model=OLLAMA_MODEL)
+
+        # --- CHANGE 2: Instantiate 'ChatOllama' instead of 'OllamaLLM' ---
+        self.llm = ChatOllama(model=OLLAMA_MODEL)
+
         self.agent_executor = self._create_agent_executor()
-        print("RAG Agent initialized successfully.")
+        print(f"RAG Agent initialized successfully with model '{OLLAMA_MODEL}'.")
 
     def _load_and_split_pdf(self):
-        """Loads and splits the PDF document."""
         if not os.path.exists(PDF_PATH):
             raise FileNotFoundError(f"PDF file not found at {PDF_PATH}")
-
         print(f"Loading and splitting document from {PDF_PATH}...")
         loader = PyPDFLoader(PDF_PATH)
         documents = loader.load()
@@ -39,7 +44,6 @@ class RAGAgent:
         return chunks
 
     def _create_or_load_vector_store(self):
-        """Creates or loads the FAISS vector store."""
         if os.path.exists(VECTOR_STORE_PATH):
             print(f"Loading existing vector store from {VECTOR_STORE_PATH}...")
             return FAISS.load_local(VECTOR_STORE_PATH, self.embeddings, allow_dangerous_deserialization=True)
@@ -52,7 +56,6 @@ class RAGAgent:
             return vector_store
 
     def _create_agent_executor(self):
-        """Creates the agent executor with a RAG chain tool."""
         print("Creating RAG chain and agent executor...")
         retriever = self.vector_store.as_retriever()
 
@@ -60,26 +63,61 @@ class RAGAgent:
             llm=self.llm,
             chain_type="stuff",
             retriever=retriever,
-            return_source_documents=False
+            return_source_documents=True
         )
 
         @tool
-        def ask_book_on_data_intensive_applications(query: str) -> str:
+        def ask_book(query: str) -> dict:
             """
             Answers questions about designing data-intensive applications by retrieving
-            relevant information from the provided book's content.
+            relevant information from the book. Use this for any technical question
+            related to the book's content.
             """
-            return qa_chain.invoke({"query": query})["result"]
+            return qa_chain.invoke({"query": query})
 
-        prompt = hub.pull("hwchase17/react")
-        agent = create_react_agent(self.llm, [ask_book_on_data_intensive_applications], prompt)
-        return AgentExecutor(agent=agent, tools=[ask_book_on_data_intensive_applications], verbose=True)
+        prompt = ChatPromptTemplate.from_messages([
+            ("system", "You are a helpful assistant that answers questions using the provided tools."),
+            ("human", "{input}"),
+            ("placeholder", "{agent_scratchpad}"),
+        ])
+
+        agent = create_tool_calling_agent(self.llm, [ask_book], prompt)
+
+        return AgentExecutor(
+            agent=agent,
+            tools=[ask_book],
+            verbose=True
+        )
 
     def ask(self, query: str) -> str:
-        """Asks a question to the agent and returns the answer."""
+        """Asks a question to the agent and returns a formatted answer."""
         print(f"Received query for agent: {query}")
-        response = self.agent_executor.invoke({"input": query})
-        return response["output"]
+        try:
+            response = self.agent_executor.invoke({"input": query})
 
-# Instantiate the agent globally. This ensures it's loaded only once at startup.
+            final_answer = response.get("output", "No answer found.")
+
+            intermediate_steps = response.get("intermediate_steps", [])
+            if intermediate_steps:
+                tool_output = intermediate_steps[0][1]
+                answer = tool_output.get("result", "")
+                sources = tool_output.get("source_documents", [])
+
+                final_answer = answer
+                if sources:
+                    # Correctly calculate page numbers (add 1) and sort them
+                    source_pages = sorted(
+                        list(set(doc.metadata.get('page', -1) + 1 for doc in sources if 'page' in doc.metadata)))
+                    if source_pages:
+                        final_answer += f"\n\n**Sources:** Pages {', '.join(map(str, source_pages))}"
+
+            return final_answer
+
+        except Exception as e:
+            error_message = f"The agent failed to process your request. Error: {e}"
+            print(error_message)
+            return error_message
+
+
+# Instantiate the agent globally.
 rag_agent = RAGAgent()
