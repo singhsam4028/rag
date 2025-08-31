@@ -1,0 +1,9 @@
+fastapi
+uvicorn[standard]
+pydantic
+langchain
+langchain-community
+langchain-huggingface  # <-- Make sure this line exists!
+faiss-cpu
+pypdf
+sentence-transformers
