@@ -58,9 +58,8 @@ Ensure the Ollama application is running in the background.
 Part 2: Backend Setup
 You will need a terminal window for this section.
 Navigate to the backend directory:
-code
-Bash
-cd path/to/rag_web_app/backend
+
+cd path/to/rag/backend
 Create and activate a Python virtual environment:
 code
 Bash
@@ -68,8 +67,7 @@ python -m venv venv
 source venv/bin/activate
 (On Windows, use venv\Scripts\activate)
 Install the required Python packages:
-code
-Bash
+
 pip install -r requirements.txt
 Part 3: Frontend Setup
 You will need a second, separate terminal window for this section.
@@ -99,8 +97,6 @@ On subsequent runs, it will be much faster as it will load the pre-built index.
 Leave this terminal running.
 Step 2: Start the Frontend Application
 In your frontend terminal (with its venv active), run the following command:
-code
-Bash
 streamlit run app.py
 Your default web browser should automatically open with the Streamlit application running.
 How to Use
